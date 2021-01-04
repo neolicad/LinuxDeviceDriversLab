@@ -90,7 +90,7 @@ struct scull_dev {
 	int qset;                 /* the current array size */
 	unsigned long size;       /* amount of data stored here */
 	unsigned int access_key;  /* used by sculluid and scullpriv */
-	struct semaphore sem;     /* mutual exclusion semaphore     */
+	struct mutex mtx;     /* mutual exclusion handle     */
 	struct cdev cdev;	  /* Char device structure		*/
 };
 
@@ -118,8 +118,8 @@ extern int scull_p_buffer;	/* pipe.c */
 
 int     scull_p_init(dev_t dev);
 void    scull_p_cleanup(void);
-int     scull_access_init(dev_t dev);
-void    scull_access_cleanup(void);
+/* int     scull_access_init(dev_t dev);
+void    scull_access_cleanup(void); */
 
 int     scull_trim(struct scull_dev *dev);
 
