@@ -236,6 +236,7 @@ static void scull_remove_proc(void)
 
 int scull_open(struct inode *inode, struct file *filp)
 {
+    printk(KERN_ALERT "scull open!\n");
 	struct scull_dev *dev; /* device information */
 
 	dev = container_of(inode->i_cdev, struct scull_dev, cdev);
@@ -324,6 +325,7 @@ ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
 		retval = -EFAULT;
 		goto out;
 	}
+    printk(KERN_ALERT "scull_read count=%ld\n", count);
 	*f_pos += count;
 	retval = count;
 
@@ -341,6 +343,8 @@ ssize_t scull_write(struct file *filp, const char __user *buf, size_t count,
 	int itemsize = quantum * qset;
 	int item, s_pos, q_pos, rest;
 	ssize_t retval = -ENOMEM; /* value used in "goto out" statements */
+
+    printk(KERN_ALERT "scull write!\n");
 
 	if (mutex_lock_interruptible(&dev->mtx))
 		return -ERESTARTSYS;
@@ -614,6 +618,7 @@ int scull_init_module(void)
 {
 	int result, i;
 	dev_t dev = 0;
+    printk(KERN_ALERT "scull_init_module!\n");
 
 /*
  * Get a range of minor numbers to work with, asking for a dynamic
@@ -632,7 +637,7 @@ int scull_init_module(void)
 		return result;
 	}
 
-        /* 
+    /* 
 	 * allocate the devices -- we can't have them static, as the number
 	 * can be specified at load time
 	 */
@@ -651,7 +656,7 @@ int scull_init_module(void)
 		scull_setup_cdev(&scull_devices[i], i);
 	}
 
-        /* At this point call the init function for any friend device */
+    /* At this point call the init function for any friend device */
 	dev = MKDEV(scull_major, scull_minor + scull_nr_devs);
 	dev += scull_p_init(dev);
 	/* dev += scull_access_init(dev); */
