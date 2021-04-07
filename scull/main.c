@@ -82,40 +82,6 @@ int scull_trim(struct scull_dev *dev)
 	return 0;
 }
 #ifdef SCULL_DEBUG /* use proc only if debugging */
-/*
- * The proc filesystem: function to read and entry
- */
-
-int scull_read_procmem(char *buf, char **start, off_t offset,
-                   int count, int *eof, void *data)
-{
-	int i, j, len = 0;
-	int limit = count - 80; /* Don't print more than this */
-
-	for (i = 0; i < scull_nr_devs && len <= limit; i++) {
-		struct scull_dev *d = &scull_devices[i];
-		struct scull_qset *qs = d->data;
-		if (mutex_lock_interruptible(&d->mtx))
-			return -ERESTARTSYS;
-		len += sprintf(buf+len,"\nDevice %i: qset %i, q %i, sz %li\n",
-				i, d->qset, d->quantum, d->size);
-		for (; qs && len <= limit; qs = qs->next) { /* scan the list */
-			len += sprintf(buf + len, "  item at %p, qset at %p\n",
-					qs, qs->data);
-			if (qs->data && !qs->next) /* dump only the last item */
-				for (j = 0; j < d->qset; j++) {
-					if (qs->data[j])
-						len += sprintf(buf + len,
-								"    % 4i: %8p\n",
-								j, qs->data[j]);
-				}
-		}
-		mutex_unlock(&scull_devices[i].mtx);
-	}
-	*eof = 1;
-	return len;
-}
-
 
 /*
  * For now, the seq_file implementation will exist in parallel.  The
@@ -161,9 +127,12 @@ static int scull_seq_show(struct seq_file *s, void *v)
 		seq_printf(s, "  item at %p, qset at %p\n", d, d->data);
 		if (d->data && !d->next) /* dump only the last item */
 			for (i = 0; i < dev->qset; i++) {
-				if (d->data[i])
-					seq_printf(s, "    % 4i: %8p\n",
+                if (d->data[i]) {
+                    seq_printf(s, "    % 4i: %8p\n",
 							i, d->data[i]);
+
+                    seq_printf(s, "    %s\n", (char *)d->data[i]);
+                }
 			}
 	}
 	mutex_unlock(&dev->mtx);
@@ -192,12 +161,11 @@ static int scull_proc_open(struct inode *inode, struct file *file)
 /*
  * Create a set of file operations for our proc file.
  */
-static struct file_operations scull_proc_ops = {
-	.owner   = THIS_MODULE,
-	.open    = scull_proc_open,
-	.read    = seq_read,
-	.llseek  = seq_lseek,
-	.release = seq_release
+static struct proc_ops scull_proc_ops = {
+	.proc_open    = scull_proc_open,
+	.proc_read    = seq_read,
+	.proc_lseek  = seq_lseek,
+	.proc_release = seq_release
 };
 	
 
@@ -208,18 +176,14 @@ static struct file_operations scull_proc_ops = {
 static void scull_create_proc(void)
 {
 	struct proc_dir_entry *entry;
-	create_proc_read_entry("scullmem", 0 /* default mode */,
-			NULL /* parent dir */, scull_read_procmem,
-			NULL /* client data */);
-	entry = create_proc_entry("scullseq", 0, NULL);
-	if (entry)
-		entry->proc_fops = &scull_proc_ops;
+	entry = proc_create("scullseq", 0, NULL, &scull_proc_ops);
+	if (!entry)
+        printk(KERN_ALERT "scull_create_proc failed to create a file entry!");
 }
 
 static void scull_remove_proc(void)
 {
 	/* no problem if it was not registered */
-	remove_proc_entry("scullmem", NULL /* parent dir */);
 	remove_proc_entry("scullseq", NULL);
 }
 
@@ -236,7 +200,6 @@ static void scull_remove_proc(void)
 
 int scull_open(struct inode *inode, struct file *filp)
 {
-    printk(KERN_ALERT "scull open!\n");
 	struct scull_dev *dev; /* device information */
 
 	dev = container_of(inode->i_cdev, struct scull_dev, cdev);
@@ -325,7 +288,6 @@ ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
 		retval = -EFAULT;
 		goto out;
 	}
-    printk(KERN_ALERT "scull_read count=%ld\n", count);
 	*f_pos += count;
 	retval = count;
 
@@ -344,7 +306,6 @@ ssize_t scull_write(struct file *filp, const char __user *buf, size_t count,
 	int item, s_pos, q_pos, rest;
 	ssize_t retval = -ENOMEM; /* value used in "goto out" statements */
 
-    printk(KERN_ALERT "scull write!\n");
 
 	if (mutex_lock_interruptible(&dev->mtx))
 		return -ERESTARTSYS;
@@ -503,11 +464,11 @@ int scull_ioctl(struct inode *inode, struct file *filp,
          */
 
 	  case SCULL_P_IOCTSIZE:
-		scull_p_buffer = arg;
+		/* scull_p_buffer = arg; */
 		break;
 
 	  case SCULL_P_IOCQSIZE:
-		return scull_p_buffer;
+		/* return scull_p_buffer; */
 
 
 	  default:  /* redundant, as cmd was checked against MAXNR */
@@ -591,7 +552,7 @@ void scull_cleanup_module(void)
 	unregister_chrdev_region(devno, scull_nr_devs);
 
 	/* and call the cleanup functions for friend devices */
-	scull_p_cleanup();
+	/* scull_p_cleanup(); */
 	/* scull_access_cleanup(); */
 
 }
@@ -617,7 +578,6 @@ int scull_init_module(void)
 {
 	int result, i;
 	dev_t dev = 0;
-    printk(KERN_ALERT "scull_init_module!\n");
 
 /*
  * Get a range of minor numbers to work with, asking for a dynamic
@@ -657,7 +617,7 @@ int scull_init_module(void)
 
     /* At this point call the init function for any friend device */
 	dev = MKDEV(scull_major, scull_minor + scull_nr_devs);
-	dev += scull_p_init(dev);
+	/* dev += scull_p_init(dev); */
 	/* dev += scull_access_init(dev); */
 
 #ifdef SCULL_DEBUG /* only when debugging */
