@@ -25,6 +25,7 @@
 #include <linux/types.h>	/* size_t */
 #include <linux/fcntl.h>
 #include <linux/poll.h>
+#include <linux/seq_file.h>
 #include <linux/cdev.h>
 #include <asm/uaccess.h>
 
@@ -127,7 +128,7 @@ static ssize_t scull_p_read (struct file *filp, char __user *buf, size_t count,
 		mutex_unlock(&dev->mtx); /* release the lock */
 		if (filp->f_flags & O_NONBLOCK)
 			return -EAGAIN;
-		PDEBUG("\"%s\" reading: going to sleep\n", current->comm);
+		PDEBUG("scull_p:\"%s\" reading: going to sleep, dev address=%px, dev->rp=%px, dev->wp=%px\n", current->comm, dev, dev->rp, dev->wp);
 		if (wait_event_interruptible(dev->inq, (dev->rp != dev->wp)))
 			return -ERESTARTSYS; /* signal: tell the fs layer to handle it */
 		/* otherwise loop, but first reacquire the lock */
@@ -221,7 +222,7 @@ static ssize_t scull_p_write(struct file *filp, const char __user *buf, size_t c
 	/* and signal asynchronous readers, explained late in chapter 5 */
 	if (dev->async_queue)
 		kill_fasync(&dev->async_queue, SIGIO, POLL_IN);
-	PDEBUG("\"%s\" did write %li bytes\n",current->comm, (long)count);
+	PDEBUG("scull_p:\"%s\" did write %li bytes, dev address=%px, dev->rp=%px, dev->wp=%px\n",current->comm, (long)count, dev, dev->rp, dev->wp);
 	return count;
 }
 
@@ -259,48 +260,62 @@ static int scull_p_fasync(int fd, struct file *filp, int mode)
 
 
 
-/* FIXME this should use seq_file */
 #ifdef SCULL_DEBUG
-static void scullp_proc_offset(char *buf, char **start, off_t *offset, int *len)
-{
-	if (*offset == 0)
-		return;
-	if (*offset >= *len) {	/* Not there yet */
-		*offset -= *len;
-		*len = 0;
-	}
-	else {			/* We're into the interesting stuff now */
-		*start = buf + *offset;
-		*offset = 0;
-	}
+
+/** print scullpipe0 */
+static void *scullp_seq_start(struct seq_file *s, loff_t *pos) {
+    if (*pos) {
+        return NULL;        
+    }
+    *pos = 1;
+    return scull_p_devices;
 }
 
-
-static int scull_read_p_mem(char *buf, char **start, off_t offset, int count,
-		int *eof, void *data)
-{
-	int i, len;
-	struct scull_pipe *p;
-
-#define LIMIT (PAGE_SIZE-200)	/* don't print any more after this size */
-	*start = buf;
-	len = sprintf(buf, "Default buffersize is %i\n", scull_p_buffer);
-	for(i = 0; i<scull_p_nr_devs && len <= LIMIT; i++) {
-		p = &scull_p_devices[i];
-		if (mutex_lock_interruptible(&p->mtx))
-			return -ERESTARTSYS;
-		len += sprintf(buf+len, "\nDevice %i: %p\n", i, p);
-/*		len += sprintf(buf+len, "   Queues: %p %p\n", p->inq, p->outq);*/
-		len += sprintf(buf+len, "   Buffer: %p to %p (%i bytes)\n", p->buffer, p->end, p->buffersize);
-		len += sprintf(buf+len, "   rp %p   wp %p\n", p->rp, p->wp);
-		len += sprintf(buf+len, "   readers %i   writers %i\n", p->nreaders, p->nwriters);
-		mutex_unlock(&p->mtx);
-		scullp_proc_offset(buf, start, &offset, &len);
-	}
-	*eof = (len <= LIMIT);
-	return len;
+static void *scullp_seq_next(struct seq_file *s, void *v, loff_t *pos) {
+    return NULL;
 }
 
+static int scullp_seq_show(struct seq_file *s, void *v) {
+    struct scull_pipe *p = (struct scull_pipe *) v;
+    if (mutex_lock_interruptible(&p->mtx))
+        return -ERESTARTSYS;
+    seq_printf(s, "\nDevice address: %px\n", p);
+    seq_printf(s, "   Queues: %px %px\n", &p->inq, &p->outq);
+    seq_printf(s, "   Buffer: %px to %px (%i bytes)\n", p->buffer, p->end, p->buffersize);
+    seq_printf(s, "   rp %px   wp %px\n", p->rp, p->wp);
+    seq_printf(s, "   readers %i   writers %i\n", p->nreaders, p->nwriters);
+    mutex_unlock(&p->mtx);
+
+    return 0;
+}
+
+static void scullp_seq_stop(struct seq_file *s, void *v) {}
+
+static struct seq_operations scullp_seq_ops = {
+    .start = scullp_seq_start,
+    .next = scullp_seq_next,
+    .show = scullp_seq_show,
+    .stop = scullp_seq_stop
+};
+
+static int scullp_proc_open(struct inode *inode, struct file *file) {
+    return seq_open(file, &scullp_seq_ops);
+}
+
+static struct proc_ops scullp_proc_ops = {
+    .proc_open = scullp_proc_open,
+    .proc_read = seq_read,
+    .proc_lseek = seq_lseek,
+    .proc_release = seq_release
+};
+
+static void scullp_create_proc(void)
+{
+	struct proc_dir_entry *entry;
+	entry = proc_create("scullpseq", 0, NULL, &scullp_proc_ops);
+	if (!entry)
+        printk(KERN_ALERT "scull_create_proc failed to create a file entry!");
+}
 
 #endif
 
@@ -337,8 +352,6 @@ static void scull_p_setup_cdev(struct scull_pipe *dev, int index)
 		printk(KERN_NOTICE "Error %d adding scullpipe%d", err, index);
 }
 
- 
-
 /*
  * Initialize the pipe devs; return how many we did.
  */
@@ -365,7 +378,7 @@ int scull_p_init(dev_t firstdev)
 		scull_p_setup_cdev(scull_p_devices + i, i);
 	}
 #ifdef SCULL_DEBUG
-	create_proc_read_entry("scullpipe", 0, NULL, scull_read_p_mem, NULL);
+	scullp_create_proc();
 #endif
 	return scull_p_nr_devs;
 }

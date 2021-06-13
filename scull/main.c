@@ -94,17 +94,15 @@ int scull_trim(struct scull_dev *dev)
  */
 static void *scull_seq_start(struct seq_file *s, loff_t *pos)
 {
-	if (*pos >= scull_nr_devs)
+	if (*pos >= 1)
 		return NULL;   /* No more to read */
-	return scull_devices + *pos;
+	return pos;
 }
 
 static void *scull_seq_next(struct seq_file *s, void *v, loff_t *pos)
 {
 	(*pos)++;
-	if (*pos >= scull_nr_devs)
-		return NULL;
-	return scull_devices + *pos;
+    return NULL;
 }
 
 static void scull_seq_stop(struct seq_file *s, void *v)
@@ -114,27 +112,21 @@ static void scull_seq_stop(struct seq_file *s, void *v)
 
 static int scull_seq_show(struct seq_file *s, void *v)
 {
-	struct scull_dev *dev = (struct scull_dev *) v;
-	struct scull_qset *d;
-	int i;
-
+    struct scull_dev *dev = scull_devices; /* use scull0 */
+    loff_t pos = *(loff_t *)v;
+    if (pos != 0) {
+        seq_printf(s, "\nIndex error: position is not 0!, pos: %lld\n", pos);
+        return -EINVAL;
+    }
+ 
 	if (mutex_lock_interruptible(&dev->mtx))
 		return -ERESTARTSYS;
-	seq_printf(s, "\nDevice %i: qset %i, q %i, sz %li\n",
-			(int) (dev - scull_devices), dev->qset,
-			dev->quantum, dev->size);
-	for (d = dev->data; d; d = d->next) { /* scan the list */
-		seq_printf(s, "  item at %p, qset at %p\n", d, d->data);
-		if (d->data && !d->next) /* dump only the last item */
-			for (i = 0; i < dev->qset; i++) {
-                if (d->data[i]) {
-                    seq_printf(s, "    % 4i: %8p\n",
-							i, d->data[i]);
+    seq_printf(
+            s, 
+            "HZ=%ld, scull0.size=%ld\n",
+            HZ,
+            scull_devices[0].size);
 
-                    seq_printf(s, "    %s\n", (char *)d->data[i]);
-                }
-			}
-	}
 	mutex_unlock(&dev->mtx);
 	return 0;
 }
@@ -354,8 +346,7 @@ ssize_t scull_write(struct file *filp, const char __user *buf, size_t count,
  * The ioctl() implementation
  */
 
-int scull_ioctl(struct inode *inode, struct file *filp,
-                 unsigned int cmd, unsigned long arg)
+long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 
 	int err = 0, tmp;
@@ -472,6 +463,7 @@ int scull_ioctl(struct inode *inode, struct file *filp,
 
 
 	  default:  /* redundant, as cmd was checked against MAXNR */
+        printk(KERN_ALERT "SCULL_IOCQQUANTUM = %d\n", SCULL_IOCQQUANTUM);
 		return -ENOTTY;
 	}
 	return retval;
@@ -519,6 +511,7 @@ struct file_operations scull_fops = {
 	.write =    scull_write,
 	.open =     scull_open,
 	.release =  scull_release,
+    .unlocked_ioctl = scull_ioctl,
 };
 
 /*
@@ -552,8 +545,8 @@ void scull_cleanup_module(void)
 	unregister_chrdev_region(devno, scull_nr_devs);
 
 	/* and call the cleanup functions for friend devices */
-	/* scull_p_cleanup(); */
-	/* scull_access_cleanup(); */
+	scull_p_cleanup();
+	scull_access_cleanup();
 
 }
 
@@ -617,8 +610,8 @@ int scull_init_module(void)
 
     /* At this point call the init function for any friend device */
 	dev = MKDEV(scull_major, scull_minor + scull_nr_devs);
-	/* dev += scull_p_init(dev); */
-	/* dev += scull_access_init(dev); */
+	dev += scull_p_init(dev);
+	dev += scull_access_init(dev);
 
 #ifdef SCULL_DEBUG /* only when debugging */
 	scull_create_proc();

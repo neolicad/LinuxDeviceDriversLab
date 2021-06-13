@@ -11,3 +11,5 @@ all: $(FILES)
 clean:
 	rm -f $(FILES) *~ core
 
+asynctest: asynctest.c
+	gcc asynctest.c -o asynctest

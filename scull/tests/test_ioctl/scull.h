@@ -1,0 +1,9 @@
+#ifndef _SCULL_H
+#define _SCULL_H
+
+#define SCULL_IOCSQUANTUM 0x40046b01
+#define SCULL_IOCGQUANTUM 0x80046b05
+#define SCULL_IOCTQUANTUM 0x6b03
+#define SCULL_IOCQQUANTUM 0x6b07
+
+#endif

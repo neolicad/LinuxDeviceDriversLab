@@ -1,1 +1,1 @@
-cmd_/home/changda/git/kernels/examples/scull/scull.mod := { echo  /home/changda/git/kernels/examples/scull/main.o; echo; } > /home/changda/git/kernels/examples/scull/scull.mod
+cmd_/home/changda/git/kernels/examples/scull/scull.mod := { echo  /home/changda/git/kernels/examples/scull/main.o /home/changda/git/kernels/examples/scull/pipe.o /home/changda/git/kernels/examples/scull/access.o; echo; } > /home/changda/git/kernels/examples/scull/scull.mod

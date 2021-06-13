@@ -26,6 +26,7 @@
 #include <linux/fcntl.h>
 #include <linux/cdev.h>
 #include <linux/tty.h>
+#include <linux/uidgid.h>
 #include <asm/atomic.h>
 #include <linux/list.h>
 
@@ -52,6 +53,7 @@ static atomic_t scull_s_available = ATOMIC_INIT(1);
 static int scull_s_open(struct inode *inode, struct file *filp)
 {
 	struct scull_dev *dev = &scull_s_device; /* device information */
+    PDEBUG("[scull_s] open\n");
 
 	if (! atomic_dec_and_test (&scull_s_available)) {
 		atomic_inc(&scull_s_available);
@@ -93,7 +95,7 @@ struct file_operations scull_sngl_fops = {
 
 static struct scull_dev scull_u_device;
 static int scull_u_count;	/* initialized to 0 by default */
-static uid_t scull_u_owner;	/* initialized to 0 by default */
+static kuid_t scull_u_owner;	/* initialized to 0 by default */
 static DEFINE_SPINLOCK(scull_u_lock);
 
 static int scull_u_open(struct inode *inode, struct file *filp)
@@ -102,15 +104,15 @@ static int scull_u_open(struct inode *inode, struct file *filp)
 
 	spin_lock(&scull_u_lock);
 	if (scull_u_count && 
-			(scull_u_owner != current->uid) &&  /* allow user */
-			(scull_u_owner != current->euid) && /* allow whoever did su */
+			(!uid_eq(scull_u_owner, current->real_cred->uid)) &&  /* allow user */
+			(!uid_eq(scull_u_owner, current->cred->uid)) && /* allow whoever did su */
 			!capable(CAP_DAC_OVERRIDE)) { /* still allow root */
 		spin_unlock(&scull_u_lock);
 		return -EBUSY;   /* -EPERM would confuse the user */
 	}
 
 	if (scull_u_count == 0)
-		scull_u_owner = current->uid; /* grab it */
+		scull_u_owner = current->real_cred->uid; /* grab it */
 
 	scull_u_count++;
 	spin_unlock(&scull_u_lock);
@@ -153,16 +155,17 @@ struct file_operations scull_user_fops = {
 
 static struct scull_dev scull_w_device;
 static int scull_w_count;	/* initialized to 0 by default */
-static uid_t scull_w_owner;	/* initialized to 0 by default */
+static kuid_t scull_w_owner;	/* initialized to 0 by default */
 static DECLARE_WAIT_QUEUE_HEAD(scull_w_wait);
 static DEFINE_SPINLOCK(scull_w_lock);
 
 static inline int scull_w_available(void)
 {
-	return scull_w_count == 0 ||
-		scull_w_owner == current->uid ||
-		scull_w_owner == current->euid ||
-		capable(CAP_DAC_OVERRIDE);
+    return scull_w_count == 0;
+	// return scull_w_count == 0 ||
+	//	uid_eq(scull_w_owner, current->real_cred->uid) ||
+	//	uid_eq(scull_w_owner, current->cred->uid) ||
+	//	capable(CAP_DAC_OVERRIDE);
 }
 
 
@@ -179,7 +182,7 @@ static int scull_w_open(struct inode *inode, struct file *filp)
 		spin_lock(&scull_w_lock);
 	}
 	if (scull_w_count == 0)
-		scull_w_owner = current->uid; /* grab it */
+		scull_w_owner = current->real_cred->uid; /* grab it */
 	scull_w_count++;
 	spin_unlock(&scull_w_lock);
 
