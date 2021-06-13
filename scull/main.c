@@ -123,8 +123,7 @@ static int scull_seq_show(struct seq_file *s, void *v)
 		return -ERESTARTSYS;
     seq_printf(
             s, 
-            "HZ=%ld, scull0.size=%ld\n",
-            HZ,
+            "scull0.size=%ld\n",
             scull_devices[0].size);
 
 	mutex_unlock(&dev->mtx);
