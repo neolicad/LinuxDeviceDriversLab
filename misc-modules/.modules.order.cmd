@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/misc-modules/modules.order := {   echo /home/changda/git/kernels/examples/misc-modules/jit.ko;   echo /home/changda/git/kernels/examples/misc-modules/sleepy.ko; :; } | awk '!x[$$0]++' - > /home/changda/git/kernels/examples/misc-modules/modules.order

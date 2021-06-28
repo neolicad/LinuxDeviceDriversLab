@@ -25,6 +25,7 @@
 #include <linux/errno.h>	/* error codes */
 #include <linux/types.h>	/* size_t */
 #include <linux/proc_fs.h>
+#include <linux/param.h>
 #include <linux/fcntl.h>	/* O_ACCMODE */
 #include <linux/seq_file.h>
 #include <linux/cdev.h>
@@ -123,7 +124,7 @@ static int scull_seq_show(struct seq_file *s, void *v)
 		return -ERESTARTSYS;
     seq_printf(
             s, 
-            "HZ=%ld, scull0.size=%ld\n",
+            "HZ=%d, scull0.size=%ld\n",
             HZ,
             scull_devices[0].size);
 
