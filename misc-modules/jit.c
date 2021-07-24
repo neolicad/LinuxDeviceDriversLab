@@ -305,17 +305,18 @@ static struct proc_ops jitimer_proc_ops = {
 };
 
 
-/*
-void jit_tasklet_fn(unsigned long arg)
+
+void jitasklet_fn(unsigned long arg)
 {
 	struct jit_data *data = (struct jit_data *)arg;
 	unsigned long j = jiffies;
-	data->buf += sprintf(data->buf, "%9li  %3li     %i    %6i   %i   %s\n",
+	data->next += sprintf(data->next, "%9li  %3li     %i    %6i   %i   %s\n",
 			     j, j - data->prevjiffies, in_interrupt() ? 1 : 0,
 			     current->pid, smp_processor_id(), current->comm);
 
 	if (--data->loops) {
 		data->prevjiffies = j;
+        printk(KERN_ALERT "jitasklet_fn data->hi = %d", data->hi);
 		if (data->hi)
 			tasklet_hi_schedule(&data->tlet);
 		else
@@ -323,53 +324,80 @@ void jit_tasklet_fn(unsigned long arg)
 	} else {
 		wake_up_interruptible(&data->wait);
 	}
-}*/
+}
 
 /* the /proc function: allocate everything to allow concurrency */
-/*int jit_tasklet(char *buf, char **start, off_t offset,
-	      int len, int *eof, void *arg)
+static void *jitasklet_seq_start(struct seq_file *m, loff_t *pos)
 {
 	struct jit_data *data;
-	char *buf2 = buf;
+	char *buf2;
 	unsigned long j = jiffies;
-	long hi = (long)arg;
+	long hi = (long) PDE_DATA(file_inode(m->file));
+
+    if (*pos) {
+        return NULL;
+    }
 
 	data = kmalloc(sizeof(*data), GFP_KERNEL);
 	if (!data)
-		return -ENOMEM;
+		return NULL;
 
-	init_waitqueue_head (&data->wait); */
+    printk(KERN_ALERT "jitasklet_seq_start data=%px", data);
+	init_waitqueue_head (&data->wait);
 
 	/* write the first lines in the buffer */
-	/*buf2 += sprintf(buf2, "   time   delta  inirq    pid   cpu command\n");
+    buf2 = data->buf;
+	buf2 += sprintf(buf2, "   time   delta  inirq    pid   cpu command\n");
 	buf2 += sprintf(buf2, "%9li  %3li     %i    %6i   %i   %s\n",
 			j, 0L, in_interrupt() ? 1 : 0,
-			current->pid, smp_processor_id(), current->comm); */
+			current->pid, smp_processor_id(), current->comm);
 
 	/* fill the data for our tasklet function */
-	/* data->prevjiffies = j;
-	data->buf = buf2;
-	data->loops = JIT_ASYNC_LOOPS; */
+	data->prevjiffies = j;
+	data->next = buf2;
+	data->loops = JIT_ASYNC_LOOPS;
 	
 	/* register the tasklet */
-	/*tasklet_init(&data->tlet, jit_tasklet_fn, (unsigned long)data);
+	tasklet_init(&data->tlet, jitasklet_fn, (unsigned long)data);
 	data->hi = hi;
 	if (hi)
 		tasklet_hi_schedule(&data->tlet);
 	else
-		tasklet_schedule(&data->tlet); */
+		tasklet_schedule(&data->tlet);
 
 	/* wait for the buffer to fill */
-	/*wait_event_interruptible(data->wait, !data->loops);
+	wait_event_interruptible(data->wait, !data->loops);
 
 	if (signal_pending(current))
-		return -ERESTARTSYS;
-	buf2 = data->buf;
-	kfree(data);
-	*eof = 1;
-	return buf2 - buf;
-} */
+		return NULL;
+    *data->next = '\0';
+    (data->next)++;
+    (*pos)++;
+    return data;
+}
 
+static void *jitasklet_seq_next(struct seq_file *m, void *v, loff_t *pos) {
+    (*pos)++;
+    return NULL;
+}
+
+static int jitasklet_seq_show(struct seq_file *m, void *v) {
+    struct jit_data *data = (struct jit_data *) v;
+    seq_printf(m, data->buf);
+    kfree(data);
+    return 0;
+}
+
+static void jitasklet_seq_stop(struct seq_file *m, void *v) {
+    printk(KERN_ALERT "jitasklet_seq_stop v=%px", v);
+}
+
+static struct seq_operations jitasklet_seq_ops = {
+    .start = jitasklet_seq_start,
+    .next = jitasklet_seq_next,
+    .show = jitasklet_seq_show,
+    .stop = jitasklet_seq_stop,
+};
 
 
 int __init jit_init(void)
@@ -382,10 +410,9 @@ int __init jit_init(void)
             "jitschedto", 0, NULL, &jit_proc_ops, (void *)JIT_SCHEDTO);
 
     proc_create("jitimer", 0, NULL, &jitimer_proc_ops);
-    
-	/* create_proc_read_entry("jitimer", 0, NULL, jit_timer, NULL);
-	create_proc_read_entry("jitasklet", 0, NULL, jit_tasklet, NULL);
-	create_proc_read_entry("jitasklethi", 0, NULL, jit_tasklet, (void *)1); */
+    proc_create_seq_data("jitasklet", 0, NULL, &jitasklet_seq_ops, NULL);
+    proc_create_seq_data(
+            "jitasklethi", 0, NULL, &jitasklet_seq_ops, (void *)1);
 
 	return 0; /* success */
 }
