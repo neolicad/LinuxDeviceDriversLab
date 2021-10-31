@@ -1,6 +1,6 @@
 
 # Comment/uncomment the following line to enable/disable debugging
-#DEBUG = y
+DEBUG = y
 
 
 ifeq ($(DEBUG),y)
@@ -16,6 +16,7 @@ TARGET = scullv
 ifneq ($(KERNELRELEASE),)
 
 scullv-objs := main.o # mmap.o
+ccflags-y += $(DEBFLAGS)
 
 obj-m	:= scullv.o
 

@@ -24,6 +24,7 @@
 #include <linux/errno.h>	/* error codes */
 #include <linux/types.h>	/* size_t */
 #include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 #include <linux/fcntl.h>	/* O_ACCMODE */
 #include <linux/aio.h>
 #include <asm/uaccess.h>
@@ -112,6 +113,62 @@ int scullv_read_procmem(char *buf, char **start, off_t offset,
 	*eof = 1;
 	return len;
 }
+
+void * scullv_seq_start(struct seq_file *m, loff_t *pos) {
+    if (*pos != 0) {
+        (*pos)++;
+        return NULL;
+    }
+    (*pos)++;
+
+    return scullv_devices; 
+}
+
+void * scullv_seq_next(struct seq_file *m, void *v, loff_t *pos) {
+    (*pos)++;
+
+    return NULL;
+}
+/* TODO: Add printing length control. */
+int scullv_seq_show(struct seq_file *m, void *v) {
+	int i, j, order, qset;
+	struct scullv_dev *d;
+
+    seq_printf(m, "PAGE_OFFSET = %lx\n", PAGE_OFFSET);
+	for(i = 0; 
+            i < 1; /* we only test scull0 now. */
+            /* i < scullv_devs; */ 
+            i++) {
+		d = &scullv_devices[i];
+		if (down_interruptible (&d->sem))
+			return -ERESTARTSYS;
+		qset = d->qset;  /* retrieve the features of each device */
+		order = d->order;
+		seq_printf(m, "\nDevice %i: qset %i, order %i, sz %li\n",
+				i, qset, order, (long)(d->size));
+		for (; d; d = d->next) { /* scan the list */
+			seq_printf(m,"  item at %px, qset at %px\n",d,d->data);
+			if (d->data && !d->next) /* dump only the last item - save space */
+				for (j = 0; j < qset; j++) {
+					if (d->data[j])
+						seq_printf(m,"    % 4i:%8px\n",j,d->data[j]);
+				}
+		}
+		up (&scullv_devices[i].sem);
+	}
+	return 0;
+}
+
+void scullv_seq_stop(struct seq_file *m, void *v) {
+    /* Do nothing */
+}
+
+static struct seq_operations scullv_seq_ops = {
+    .start = scullv_seq_start,
+    .next = scullv_seq_next,
+    .show = scullv_seq_show,
+    .stop = scullv_seq_stop,
+};
 
 #endif /* SCULLV_USE_PROC */
 
@@ -319,7 +376,7 @@ int scullv_ioctl (struct inode *inode, struct file *filp,
 		tmp = scullv_order;
 		ret = __get_user(scullv_order, (int __user *) arg);
 		if (ret == 0)
-			ret = __put_user(tmp, (int __user *) arg);
+            ret = __put_user(tmp, (int __user *) arg);
 		break;
 
 	case SCULLV_IOCHORDER: /* sHift: like Tell + Query */
@@ -360,6 +417,7 @@ int scullv_ioctl (struct inode *inode, struct file *filp,
 
 	return ret;
 }
+
 
 /*
  * The "extended" operations
@@ -518,6 +576,14 @@ static void scullv_setup_cdev(struct scullv_dev *dev, int index)
 }
 
 
+/* TODO: remove, this is just for suppressing the unused function warning. */
+static void noop(void) {
+    if (0) {
+        scullv_aio_write(NULL, NULL, 0, 0);
+        scullv_aio_read(NULL, NULL, 0, 0);
+    }
+}
+
 
 /*
  * Finally, the module stuff
@@ -560,14 +626,16 @@ int scullv_init(void)
 
 
 #ifdef SCULLV_USE_PROC /* only when available */
-	create_proc_read_entry("scullvmem", 0, NULL, scullv_read_procmem, NULL);
+    proc_create_seq("scullvmem", 0, NULL, &scullv_seq_ops);
 #endif
 	return 0; /* succeed */
 
+    noop();
   fail_malloc:
 	unregister_chrdev_region(dev, scullv_devs);
 	return result;
 }
+
 
 
 

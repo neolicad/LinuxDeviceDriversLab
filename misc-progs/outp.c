@@ -30,7 +30,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include <asm/io.h> /* linux-specific */
+#include <sys/io.h> /* linux-specific */
 
 #ifdef __GLIBC__
 #  include <sys/perm.h>
@@ -41,7 +41,7 @@
 char *prgname;
 
 #ifdef __i386__
-static int write_one(unsigned int port, unsigned int val, int size)
+static int write_one_not_used_here(unsigned int port, unsigned int val, int size)
 {
     static int iopldone = 0;
 
@@ -73,21 +73,21 @@ static int write_one(unsigned int port, unsigned int val, int size)
     unsigned char b; unsigned short w;
 
     if (fd < 0)
-	fd = open(PORT_FILE, O_WRONLY);
+	    fd = open(PORT_FILE, O_WRONLY);
     if (fd < 0) {
-	fprintf(stderr, "%s: %s: %s\n", prgname, PORT_FILE, strerror(errno));
-	return 1;
+        fprintf(stderr, "%s: %s: %s\n", prgname, PORT_FILE, strerror(errno));
+        return 1;
     }
     lseek(fd, port, SEEK_SET);
     
     if (size == 4) {
-	write(fd, &val, 4);
+	    write(fd, &val, 4);
     } else if (size == 2) {
-	w = val;
-	write(fd, &w, 2);
+        w = val;
+        write(fd, &w, 2);
     } else {
-	b = val;
-	write(fd, &b, 1);
+	    b = val;
+	    write(fd, &b, 1);
     }
     return 0;
 }
@@ -109,28 +109,28 @@ int main(int argc, char **argv)
     setuid(0); /* if we're setuid, force it on */
     for (i=1;i<argc-1;i++) {
         if ( sscanf(argv[i], "%x%n", &port, &n) < 1
-	      || n != strlen(argv[i]) ) {
-	    fprintf(stderr, "%s: argument \"%s\" is not a hex number\n",
-		    argv[0], argv[i]);
-	    error++; continue;
-	}
-	if (port & (size-1)) {
-	    fprintf(stderr, "%s: argument \"%s\" is not properly aligned\n",
-		    argv[0], argv[i]);
-	    error++; continue;
-	}
+	            || n != strlen(argv[i]) ) {
+	        fprintf(stderr, "%s: argument \"%s\" is not a hex number\n",
+		            argv[0], argv[i]);
+	        error++; continue;
+	    }
+	    if (port & (size-1)) {
+	        fprintf(stderr, "%s: argument \"%s\" is not properly aligned\n",
+		            argv[0], argv[i]);
+	        error++; continue;
+	    }
         if ( sscanf(argv[i+1], "%x%n", &val, &n) < 1
-	      || n != strlen(argv[i+1]) ) {
-	    fprintf(stderr, "%s: argument \"%s\" is not a hex number\n",
-		    argv[0], argv[i+1]);
-	    error++; continue;
-	}
-	if (size < 4 && val > (size == 1 ? 0xff : 0xffff)) {
-	    fprintf(stderr, "%s: argument \"%s\" out of range\n",
-		    argv[0], argv[i+1]);
-	    error++; continue;
-	}
-	error += write_one(port, val, size);
+	            || n != strlen(argv[i+1]) ) {
+	        fprintf(stderr, "%s: argument \"%s\" is not a hex number\n",
+		            argv[0], argv[i+1]);
+	        error++; continue;
+	    }
+	    if (size < 4 && val > (size == 1 ? 0xff : 0xffff)) {
+	        fprintf(stderr, "%s: argument \"%s\" out of range\n",
+		            argv[0], argv[i+1]);
+	        error++; continue;
+	    }
+	    error += write_one(port, val, size);
     }
     exit (error ? 1 : 0);
 }
