@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/scullc/scullc.ko := ld -r -m elf_x86_64  --build-id  -T ./scripts/module-common.lds -o /home/changda/git/kernels/examples/scullc/scullc.ko /home/changda/git/kernels/examples/scullc/scullc.o /home/changda/git/kernels/examples/scullc/scullc.mod.o;  true

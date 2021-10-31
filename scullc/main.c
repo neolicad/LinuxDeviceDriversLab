@@ -15,7 +15,6 @@
  * $Id: _main.c.in,v 1.21 2004/10/14 20:11:39 corbet Exp $
  */
 
-#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -49,7 +48,7 @@ int scullc_trim(struct scullc_dev *dev);
 void scullc_cleanup(void);
 
 /* declare one cache pointer: use it for all devices */
-kmem_cache_t *scullc_cache;
+struct kmem_cache *scullc_cache;
 
 
 
@@ -178,6 +177,7 @@ ssize_t scullc_read (struct file *filp, char __user *buf, size_t count,
 	int item, s_pos, q_pos, rest;
 	ssize_t retval = 0;
 
+    printk(KERN_ALERT "scullc_read!\n");
 	if (down_interruptible (&dev->sem))
 		return -ERESTARTSYS;
 	if (*f_pos > dev->size) 
@@ -226,6 +226,7 @@ ssize_t scullc_write (struct file *filp, const char __user *buf, size_t count,
 	int item, s_pos, q_pos, rest;
 	ssize_t retval = -ENOMEM; /* our most likely error */
 
+    printk(KERN_ALERT "scullc_write!\n");
 	if (down_interruptible (&dev->sem))
 		return -ERESTARTSYS;
 
@@ -289,9 +290,9 @@ int scullc_ioctl (struct inode *inode, struct file *filp,
 	 * "write" is reversed
 	 */
 	if (_IOC_DIR(cmd) & _IOC_READ)
-		err = !access_ok(VERIFY_WRITE, (void __user *)arg, _IOC_SIZE(cmd));
+		err = !access_ok((void __user *)arg, _IOC_SIZE(cmd));
 	else if (_IOC_DIR(cmd) & _IOC_WRITE)
-		err =  !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
+		err =  !access_ok((void __user *)arg, _IOC_SIZE(cmd));
 	if (err)
 		return -EFAULT;
 
@@ -407,43 +408,43 @@ struct async_work {
 /*
  * "Complete" an asynchronous operation.
  */
-static void scullc_do_deferred_op(void *p)
+/*static void scullc_do_deferred_op(void *p)
 {
 	struct async_work *stuff = (struct async_work *) p;
 	aio_complete(stuff->iocb, stuff->result, 0);
 	kfree(stuff);
-}
+}*/
 
 
-static int scullc_defer_op(int write, struct kiocb *iocb, char __user *buf,
-		size_t count, loff_t pos)
-{
-	struct async_work *stuff;
-	int result;
+// static int scullc_defer_op(int write, struct kiocb *iocb, char __user *buf,
+//		size_t count, loff_t pos)
+//{
+//	struct async_work *stuff;
+//	int result;
 
 	/* Copy now while we can access the buffer */
-	if (write)
-		result = scullc_write(iocb->ki_filp, buf, count, &pos);
-	else
-		result = scullc_read(iocb->ki_filp, buf, count, &pos);
+//	if (write)
+//		result = scullc_write(iocb->ki_filp, buf, count, &pos);
+//	else
+//		result = scullc_read(iocb->ki_filp, buf, count, &pos);
 
 	/* If this is a synchronous IOCB, we return our status now. */
-	if (is_sync_kiocb(iocb))
-		return result;
+//	if (is_sync_kiocb(iocb))
+//		return result;
 
 	/* Otherwise defer the completion for a few milliseconds. */
-	stuff = kmalloc (sizeof (*stuff), GFP_KERNEL);
-	if (stuff == NULL)
-		return result; /* No memory, just complete now */
-	stuff->iocb = iocb;
-	stuff->result = result;
+//	stuff = kmalloc (sizeof (*stuff), GFP_KERNEL);
+//	if (stuff == NULL)
+//		return result; /* No memory, just complete now */
+//	stuff->iocb = iocb;
+/*	stuff->result = result;
 	INIT_WORK(&stuff->work, scullc_do_deferred_op, stuff);
 	schedule_delayed_work(&stuff->work, HZ/100);
 	return -EIOCBQUEUED;
-}
+}*/
 
 
-static ssize_t scullc_aio_read(struct kiocb *iocb, char __user *buf, size_t count,
+/*static ssize_t scullc_aio_read(struct kiocb *iocb, char __user *buf, size_t count,
 		loff_t pos)
 {
 	return scullc_defer_op(0, iocb, buf, count, pos);
@@ -453,7 +454,7 @@ static ssize_t scullc_aio_write(struct kiocb *iocb, const char __user *buf,
 		size_t count, loff_t pos)
 {
 	return scullc_defer_op(1, iocb, (char __user *) buf, count, pos);
-}
+}*/
 
 
  
@@ -467,11 +468,11 @@ struct file_operations scullc_fops = {
 	.llseek =    scullc_llseek,
 	.read =	     scullc_read,
 	.write =     scullc_write,
-	.ioctl =     scullc_ioctl,
+	/*.ioctl =     scullc_ioctl,*/
 	.open =	     scullc_open,
 	.release =   scullc_release,
-	.aio_read =  scullc_aio_read,
-	.aio_write = scullc_aio_write,
+	/*.aio_read =  scullc_aio_read,
+	.aio_write = scullc_aio_write, */
 };
 
 int scullc_trim(struct scullc_dev *dev)
@@ -509,6 +510,10 @@ static void scullc_setup_cdev(struct scullc_dev *dev, int index)
     
 	cdev_init(&dev->cdev, &scullc_fops);
 	dev->cdev.owner = THIS_MODULE;
+    /* 
+     * TODO(neolicad): try removing it, I think cdev_init already sets the ops 
+     * up? 
+     */
 	dev->cdev.ops = &scullc_fops;
 	err = cdev_add (&dev->cdev, devno, 1);
 	/* Fail gracefully if need be */
@@ -558,7 +563,7 @@ int scullc_init(void)
 	}
 
 	scullc_cache = kmem_cache_create("scullc", scullc_quantum,
-			0, SLAB_HWCACHE_ALIGN, NULL, NULL); /* no ctor/dtor */
+			0, SLAB_HWCACHE_ALIGN, NULL); /* no ctor */
 	if (!scullc_cache) {
 		scullc_cleanup();
 		return -ENOMEM;

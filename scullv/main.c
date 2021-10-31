@@ -15,7 +15,6 @@
  * $Id: _main.c.in,v 1.21 2004/10/14 20:11:39 corbet Exp $
  */
 
-#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -288,9 +287,9 @@ int scullv_ioctl (struct inode *inode, struct file *filp,
 	 * "write" is reversed
 	 */
 	if (_IOC_DIR(cmd) & _IOC_READ)
-		err = !access_ok(VERIFY_WRITE, (void __user *)arg, _IOC_SIZE(cmd));
+		err = !access_ok((void __user *)arg, _IOC_SIZE(cmd));
 	else if (_IOC_DIR(cmd) & _IOC_WRITE)
-		err =  !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
+		err =  !access_ok((void __user *)arg, _IOC_SIZE(cmd));
 	if (err)
 		return -EFAULT;
 
@@ -406,12 +405,12 @@ struct async_work {
 /*
  * "Complete" an asynchronous operation.
  */
-static void scullv_do_deferred_op(void *p)
+/* static void scullv_do_deferred_op(void *p)
 {
 	struct async_work *stuff = (struct async_work *) p;
 	aio_complete(stuff->iocb, stuff->result, 0);
 	kfree(stuff);
-}
+}*/
 
 
 static int scullv_defer_op(int write, struct kiocb *iocb, char __user *buf,
@@ -436,8 +435,8 @@ static int scullv_defer_op(int write, struct kiocb *iocb, char __user *buf,
 		return result; /* No memory, just complete now */
 	stuff->iocb = iocb;
 	stuff->result = result;
-	INIT_WORK(&stuff->work, scullv_do_deferred_op, stuff);
-	schedule_delayed_work(&stuff->work, HZ/100);
+/*	INIT_WORK(&stuff->work, scullv_do_deferred_op, stuff);
+	schedule_delayed_work(&stuff->work, HZ/100); */
 	return -EIOCBQUEUED;
 }
 
@@ -471,12 +470,8 @@ struct file_operations scullv_fops = {
 	.llseek =    scullv_llseek,
 	.read =	     scullv_read,
 	.write =     scullv_write,
-	.ioctl =     scullv_ioctl,
-	.mmap =	     scullv_mmap,
 	.open =	     scullv_open,
 	.release =   scullv_release,
-	.aio_read =  scullv_aio_read,
-	.aio_write = scullv_aio_write,
 };
 
 int scullv_trim(struct scullv_dev *dev)

@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/scullv/modules.order := {   echo /home/changda/git/kernels/examples/scullv/scullv.ko; :; } | awk '!x[$$0]++' - > /home/changda/git/kernels/examples/scullv/modules.order

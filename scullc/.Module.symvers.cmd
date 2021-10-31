@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/scullc/Module.symvers := sed 's/ko$$/o/' /home/changda/git/kernels/examples/scullc/modules.order | scripts/mod/modpost  -a   -o /home/changda/git/kernels/examples/scullc/Module.symvers -e -i Module.symvers   -T -

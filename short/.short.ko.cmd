@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/short/short.ko := ld -r -m elf_x86_64  --build-id  -T ./scripts/module-common.lds -o /home/changda/git/kernels/examples/short/short.ko /home/changda/git/kernels/examples/short/short.o /home/changda/git/kernels/examples/short/short.mod.o;  true
