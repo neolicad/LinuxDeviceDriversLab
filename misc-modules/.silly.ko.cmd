@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/misc-modules/silly.ko := ld -r -m elf_x86_64  --build-id  -T ./scripts/module-common.lds -o /home/changda/git/kernels/examples/misc-modules/silly.ko /home/changda/git/kernels/examples/misc-modules/silly.o /home/changda/git/kernels/examples/misc-modules/silly.mod.o;  true

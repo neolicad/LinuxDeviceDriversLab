@@ -50,8 +50,11 @@
 static int major = 0;	/* dynamic by default */
 module_param(major, int, 0);
 
-/*static int use_mem = 0;*/	/* default is I/O-mapped */
-/*module_param(use_mem, int, 0);*/
+static int use_mem = 0;	/* default is I/O-mapped */
+module_param(use_mem, int, 0);
+
+static int map_port = 0;
+module_param(map_port, int, 0);
 
 /* default is the first printer port on PC's. "short_base" is there too
    because it's what we want to use in the code */
@@ -130,7 +133,8 @@ int short_release (struct inode *inode, struct file *filp)
 
 /* first, the port-oriented device */
 
-enum short_modes {SHORT_DEFAULT=0, SHORT_PAUSE, SHORT_STRING, SHORT_MEMORY};
+enum short_modes {SHORT_DEFAULT=0, SHORT_PAUSE, SHORT_STRING, SHORT_MEMORY, 
+    SHORT_MAP_PORT};
 
 ssize_t do_short_read (struct inode *inode, struct file *filp, char __user *buf,
 		size_t count, loff_t *f_pos)
@@ -140,16 +144,19 @@ ssize_t do_short_read (struct inode *inode, struct file *filp, char __user *buf,
 	void *address = (void *) short_base + (minor&0x0f);
 	int mode = (minor&0x70) >> 4;
 	unsigned char *kbuf = kmalloc(count, GFP_KERNEL), *ptr;
-    
+
 	if (!kbuf)
 		return -ENOMEM;
 	ptr = kbuf;
 
-	/*if (use_mem)
-		mode = SHORT_MEMORY;*/
     /* TODO: remove this line. */
     mode = SHORT_DEFAULT;
-	
+    if (use_mem) {
+        mode = SHORT_MEMORY;
+    } else if (map_port) {
+        mode = SHORT_MAP_PORT;
+    }
+
 	switch(mode) {
 	    case SHORT_STRING:
 		insb(port, ptr, count);
@@ -165,10 +172,20 @@ ssize_t do_short_read (struct inode *inode, struct file *filp, char __user *buf,
 
 	    case SHORT_MEMORY:
 		while (count--) {
+            printk(KERN_ALERT "short memory ioread8\n");
 			*ptr++ = ioread8(address);
 			rmb();
 		}
 		break;
+
+	    case SHORT_MAP_PORT:
+		while (count--) {
+            printk(KERN_ALERT "short map port ioread8\n");
+			*ptr++ = ioread8(address);
+			rmb();
+		}
+		break;
+
 	    case SHORT_PAUSE:
 		while (count--) {
 			*(ptr++) = inb_p(port);
@@ -212,12 +229,15 @@ ssize_t do_short_write (struct inode *inode, struct file *filp, const char __use
 		return -EFAULT;
 	ptr = kbuf;
 
-	/*if (use_mem)
-		mode = SHORT_MEMORY; */
-
     /* TODO: remove this line. */
     mode = SHORT_DEFAULT;
 	
+    if (use_mem) {
+		mode = SHORT_MEMORY;
+    } else if (map_port) {
+        mode = SHORT_MAP_PORT;
+    }
+
 	switch(mode) {
 	case SHORT_PAUSE:
 		while (count--) {
@@ -240,6 +260,15 @@ ssize_t do_short_write (struct inode *inode, struct file *filp, const char __use
 
 	case SHORT_MEMORY:
 		while (count--) {
+            printk(KERN_ALERT "short memory iowrite8\n");
+			iowrite8(*ptr++, address);
+			wmb();
+		}
+		break;
+
+	case SHORT_MAP_PORT:
+		while (count--) {
+            printk(KERN_ALERT "short map port iowrite8\n");
 			iowrite8(*ptr++, address);
 			wmb();
 		}
@@ -564,25 +593,39 @@ int short_init(void)
 	short_base = base;
 	/** short_irq = irq; */
 
+    if (use_mem && map_port) {
+        printk(KERN_ALERT 
+                "short: cannot set both use_mem and map_port to be true");
+        return -EINVAL;
+    }
+
 	/* Get our needed resources. */
-	/* if (!use_mem) { */
+    if (use_mem) {
+		if (! request_mem_region(short_base, SHORT_NR_PORTS, "short")) {
+			printk(KERN_INFO "short: can't get I/O mem address 0x%lx\n",
+					short_base);
+			return -ENODEV;
+		}
+
+		/* also, ioremap it */
+		short_base = (unsigned long) ioremap(short_base, SHORT_NR_PORTS);
+		/* Hmm... we should check the return value */
+
+    } else {
 		if (! request_region(short_base, SHORT_NR_PORTS, "short")) {
 			printk(KERN_ALERT "short: can't get I/O port address 0x%lx\n",
 					short_base);
 			return -ENODEV;
 		}
-
-	/* } else {
-		if (! request_mem_region(short_base, SHORT_NR_PORTS, "short")) {
-			printk(KERN_INFO "short: can't get I/O mem address 0x%lx\n",
-					short_base);
-			return -ENODEV;
-		} */
-
-		/* also, ioremap it */
-		/* short_base = (unsigned long) ioremap(short_base, SHORT_NR_PORTS); */
-		/* Hmm... we should check the return value */
-	/* } */
+        if (map_port) {
+            short_base = 
+                (unsigned long) ioport_map(short_base, SHORT_NR_PORTS);
+            if (!short_base) {
+                printk(KERN_ALERT "failed to map the ports to memory region!");
+                return -ENODEV;
+            }
+        }
+    }
 	/* Here we register our device - should not fail thereafter */
 	result = register_chrdev(major, "short", &short_fops);
 	if (result < 0) {
@@ -687,13 +730,16 @@ void short_cleanup(void)
 	else
 		flush_scheduled_work(); */
 	unregister_chrdev(major, "short");
-	/* if (use_mem) {
+	if (use_mem) {
 		iounmap((void __iomem *)short_base);
-		release_mem_region(short_base, SHORT_NR_PORTS);
-	} else { */
-        release_region(short_base,SHORT_NR_PORTS);
-	/*}
-	if (short_buffer) free_page(short_buffer); */
+		release_mem_region(base, SHORT_NR_PORTS);
+	} else {
+        if (map_port) {
+            ioport_unmap((void __iomem *) short_base);
+        }
+        release_region(base,SHORT_NR_PORTS);
+	}
+	/* if (short_buffer) free_page(short_buffer); */
 }
 
 module_init(short_init);

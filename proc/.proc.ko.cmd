@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/proc/proc.ko := ld -r -m elf_x86_64  --build-id  -T ./scripts/module-common.lds -o /home/changda/git/kernels/examples/proc/proc.ko /home/changda/git/kernels/examples/proc/proc.o /home/changda/git/kernels/examples/proc/proc.mod.o;  true
