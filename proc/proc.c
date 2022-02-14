@@ -37,12 +37,16 @@ static struct seq_operations nr_irqs_seq_ops = {
 };
 
 int proc_init(void) {
-    proc_create_seq("nr_irqs", 0, NULL, &nr_irqs_seq_ops);
+    proc_create_seq(
+            "nr_irqs" /* name */, 
+            0 /* default mode */, 
+            NULL /* parent dir*/, 
+            &nr_irqs_seq_ops /* ops */);
     return 0;
 }
 
 void proc_cleanup(void) {
-    remove_proc_entry("nr_irqs", NULL);
+    remove_proc_entry("nr_irqs" /* name */, NULL /* parent dir */);
 }
 
 module_init(proc_init);
