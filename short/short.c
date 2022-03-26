@@ -43,6 +43,8 @@
 
 #define SHORT_NR_PORTS	8	/* use 8 ports by default */
 
+/* NOTE: short_irq = 17 */
+
 /*
  * all of the parameters have no "short_" prefix, to save typing when
  * specifying them at load time
@@ -63,46 +65,46 @@ unsigned long short_base = 0;
 module_param(base, long, 0);
 
 /* The interrupt line is undefined by default. "short_irq" is as above */
-/*static int irq = -1;
-volatile int short_irq = -1;
-module_param(irq, int, 0);*/
+static int irq = -1;
+volatile int short_irq = -1; /* TODO: what is volatile here for? */
+module_param(irq, int, 0);
 
-/*static int probe = 0;	*//* select at load time how to probe irq line */
-/*module_param(probe, int, 0);*/
+static int probe = 0;	/* select at load time how to probe irq line */
+module_param(probe, int, 0);
 
-/*static int wq = 0;*/	/* select at load time whether a workqueue is used */
-/*module_param(wq, int, 0);
+static int wq = 0;	/* select at load time whether a workqueue is used */
+module_param(wq, int, 0);
 
-static int tasklet = 0;	*//* select whether a tasklet is used */
-/*module_param(tasklet, int, 0);
+static int tasklet = 0;	/* select whether a tasklet is used */
+module_param(tasklet, int, 0);
 
-static int share = 0;	*//* select at load time whether install a shared irq */
+/* static int share = 0;	*//* select at load time whether install a shared irq */
 /*module_param(share, int, 0);*/
 
 MODULE_AUTHOR ("Alessandro Rubini");
 MODULE_LICENSE("Dual BSD/GPL");
 
-/*
+
 unsigned long short_buffer = 0;
 unsigned long volatile short_head;
 volatile unsigned long short_tail;
-DECLARE_WAIT_QUEUE_HEAD(short_queue);*/
+DECLARE_WAIT_QUEUE_HEAD(short_queue);
 
 /* Set up our tasklet if we're doing that. */
-/*
-void short_do_tasklet(unsigned long);
-DECLARE_TASKLET(short_tasklet, short_do_tasklet, 0);
-*/
+
+void short_do_tasklet(struct tasklet_struct *);
+DECLARE_TASKLET(short_tasklet, short_do_tasklet);
+
 /*
  * Atomicly increment an index into short_buffer
  */
-/*
+
 static inline void short_incr_bp(volatile unsigned long *index, int delta)
 {
 	unsigned long new = *index + delta;
-	barrier();*/  /* Don't optimize these two together */
-/*	*index = (new >= (short_buffer + PAGE_SIZE)) ? short_buffer : new;
-}*/
+	barrier();  /* Don't optimize these two together */
+	*index = (new >= (short_buffer + PAGE_SIZE)) ? short_buffer : new;
+}
 
 
 /*
@@ -117,10 +119,10 @@ static inline void short_incr_bp(volatile unsigned long *index, int delta)
 
 int short_open (struct inode *inode, struct file *filp)
 {
-	/*extern struct file_operations short_i_fops;
+	extern struct file_operations short_i_fops;
 
 	if (iminor (inode) & 0x80)
-		filp->f_op = &short_i_fops;*/ /* the interrupt-driven node */
+		filp->f_op = &short_i_fops; /* the interrupt-driven node */
 	return 0;
 }
 
@@ -312,7 +314,7 @@ struct file_operations short_fops = {
 };
 
 /* then,  the interrupt-related device */
-/*
+
 ssize_t short_i_read (struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	int count0;
@@ -322,103 +324,116 @@ ssize_t short_i_read (struct file *filp, char __user *buf, size_t count, loff_t 
 		prepare_to_wait(&short_queue, &wait, TASK_INTERRUPTIBLE);
 		if (short_head == short_tail)
 			schedule();
+        /**
+         * finish_wait sets the state of wait process to TASK_RUNNING and 
+         * removes wait from wait queue.
+         * https://elixir.bootlin.com/linux/v5.16.13/source/kernel/sched/wait.c#L388
+         */
 		finish_wait(&short_queue, &wait);
-		if (signal_pending (current))  *//* a signal arrived */
-			/*return -ERESTARTSYS; *//* tell the fs layer to handle it */
-	/* } */ 
+		if (signal_pending (current))  /* a signal arrived */
+			return -ERESTARTSYS; /* tell the fs layer to handle it */
+	} 
 	/* count0 is the number of readable data bytes */
-	/* count0 = short_head - short_tail;
-	if (count0 < 0)*/ /* wrapped */
-		/*count0 = short_buffer + PAGE_SIZE - short_tail;
+	count0 = short_head - short_tail;
+	if (count0 < 0) /* wrapped */
+		count0 = short_buffer + PAGE_SIZE - short_tail;
 	if (count0 < count) count = count0;
 
 	if (copy_to_user(buf, (char *)short_tail, count))
 		return -EFAULT;
 	short_incr_bp (&short_tail, count);
 	return count;
-} */
-/*
-ssize_t short_i_write (struct file *filp, const char __user *buf, size_t count,
-		loff_t *f_pos)
+}
+
+ssize_t short_i_write (struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
-	int written = 0, odd = *f_pos & 1;
-	unsigned long port = short_base; *//* output to the parallel data latch */
-	/*void *address = (void *) short_base;
+    int fixed_count = 3;
+	int written = 0;
+	unsigned long port = short_base; /* output to the parallel data latch */
+	void *address = (void *) short_base;
 
+    outb(0x10, port + 2);
 	if (use_mem) {
-		while (written < count)
-			iowrite8(0xff * ((++written + odd) & 1), address);
+		while (written < fixed_count)
+			iowrite8(0xff * ((written++) & 1), address);
 	} else {
-		while (written < count)
-			outb(0xff * ((++written + odd) & 1), port);
+		while (written < fixed_count)
+			outb(0xff * ((written++) & 1), port);
 	}
+    outb(0x00, port + 2);
 
-	*f_pos += count;
+	*f_pos += fixed_count;
 	return written;
-} */
+}
 
 
 
-/*
+
 struct file_operations short_i_fops = {
 	.owner	 = THIS_MODULE,
 	.read	 = short_i_read,
 	.write	 = short_i_write,
 	.open	 = short_open,
 	.release = short_release,
-}; */
-/*
-irqreturn_t short_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+};
+
+irqreturn_t short_interrupt(int irq, void *dev_id)
 {
-	struct timeval tv;
+	struct timespec64 tv;
 	int written;
 
-	do_gettimeofday(&tv); */
+    ktime_get_real_ts64(&tv);
 
-	    /* Write a 16 byte record. Assume PAGE_SIZE is a multiple of 16 */
-	/*written = sprintf((char *)short_head,"%08u.%06u\n",
-			(int)(tv.tv_sec % 100000000), (int)(tv.tv_usec));
+	/* Write a 16 byte record. Assume PAGE_SIZE is a multiple of 16 */
+	written = sprintf((char *)short_head,"%08lu.%06lu\n",
+			(long)(tv.tv_sec % 100000000), (long)(tv.tv_nsec / 1000));
 	BUG_ON(written != 16);
 	short_incr_bp(&short_head, written);
-	wake_up_interruptible(&short_queue); *//* awake any reading process */
-	/*return IRQ_HANDLED;
-}*/
+    /** 
+     * wake_up_interuptible sets the thread state to TASK_RUNNING:
+     * https://elixir.bootlin.com/linux/v5.16.13/source/kernel/sched/core.c#L3933
+     * and removes wait entries:
+     * https://elixir.bootlin.com/linux/v5.16.13/source/kernel/sched/wait.c#L419
+     */
+	wake_up_interruptible(&short_queue); /* awake any reading process */
+	return IRQ_HANDLED;
+}
 
 /*
  * The following two functions are equivalent to the previous one,
  * but split in top and bottom half. First, a few needed variables
  */
 
-/*#define NR_TIMEVAL 512*/ /* length of the array of time values */
+#define NR_TIMEVAL 512 /* length of the array of time values */
 
-/*struct timeval tv_data[NR_TIMEVAL]; *//* too lazy to allocate it */
-/*volatile struct timeval *tv_head=tv_data;
-volatile struct timeval *tv_tail=tv_data;
+struct timespec64 tv_data[NR_TIMEVAL]; /* too lazy to allocate it */
+volatile struct timespec64 *tv_head=tv_data;
+volatile struct timespec64 *tv_tail=tv_data;
 
-static struct work_struct short_wq; */
+static struct work_struct short_wq;
 
 
-/*int short_wq_count = 0; */
+int short_wq_count = 0;
 
 /*
  * Increment a circular buffer pointer in a way that nobody sees
  * an intermediate value.
  */
-/*
-static inline void short_incr_tv(volatile struct timeval **tvp)
+
+static inline void short_incr_tv(volatile struct timespec64 **tvp)
 {
 	if (*tvp == (tv_data + NR_TIMEVAL - 1))
-		*tvp = tv_data;	 *//* Wrap */
-	/*else
+		*tvp = tv_data;	 /* Wrap */
+	else
 		(*tvp)++;
-}*/
+}
 
 
-/*
-void short_do_tasklet (unsigned long unused)
+
+void short_do_tasklet (struct tasklet_struct *unused)
 {
 	int savecount = short_wq_count, written;
-	short_wq_count = 0; *//* we have already been removed from the queue */
+	short_wq_count = 0; /* we have already been removed from the queue */
 	/*
 	 * The bottom half reads the tv array, filled by the top half,
 	 * and prints it to the circular text buffer, which is then consumed
@@ -426,52 +441,53 @@ void short_do_tasklet (unsigned long unused)
 	 */
 
 	/* First write the number of interrupts that occurred before this bh */
-	/*written = sprintf((char *)short_head,"bh after %6i\n",savecount);
-	short_incr_bp(&short_head, written); */
+	written = sprintf((char *)short_head,"bh after %6i\n",savecount);
+	short_incr_bp(&short_head, written);
 
 	/*
 	 * Then, write the time values. Write exactly 16 bytes at a time,
 	 * so it aligns with PAGE_SIZE
 	 */
-/*
+
 	do {
 		written = sprintf((char *)short_head,"%08u.%06u\n",
 				(int)(tv_tail->tv_sec % 100000000),
-				(int)(tv_tail->tv_usec));
+				(int)(tv_tail->tv_nsec / 1000));
 		short_incr_bp(&short_head, written);
 		short_incr_tv(&tv_tail);
 	} while (tv_tail != tv_head);
 
-	wake_up_interruptible(&short_queue); *//* awake any reading process */
-/*}*/
+	wake_up_interruptible(&short_queue); /* awake any reading process */
+}
 
-/*
-irqreturn_t short_wq_interrupt(int irq, void *dev_id, struct pt_regs *regs)
-{*/
+
+irqreturn_t short_wq_interrupt(int irq, void *dev_id)
+{
+    printk(KERN_ALERT "short_wq_interrupt!\n");
 	/* Grab the current time information. */
-/*	do_gettimeofday((struct timeval *) tv_head);
-	short_incr_tv(&tv_head); */
+    ktime_get_real_ts64((struct timespec64 *) tv_head);
+	short_incr_tv(&tv_head);
 
 	/* Queue the bh. Don't worry about multiple enqueueing */
-	/*schedule_work(&short_wq);
+	schedule_work(&short_wq);
 
-	short_wq_count++; *//* record that an interrupt arrived */
-	/*return IRQ_HANDLED;
-}*/
+	short_wq_count++; /* record that an interrupt arrived */
+	return IRQ_HANDLED;
+}
 
 
 /*
  * Tasklet top half
  */
-/*
-irqreturn_t short_tl_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+
+irqreturn_t short_tl_interrupt(int irq, void *dev_id)
 {
-	do_gettimeofday((struct timeval *) tv_head); *//* cast to stop 'volatile' warning */
-	/*short_incr_tv(&tv_head);
+	ktime_get_real_ts64((struct timespec64 *) tv_head); /* cast to stop 'volatile' warning */
+	short_incr_tv(&tv_head);
 	tasklet_schedule(&short_tasklet);
-	short_wq_count++;*/ /* record that an interrupt arrived */
-	/*return IRQ_HANDLED;
-}*/
+	short_wq_count++; /* record that an interrupt arrived */
+	return IRQ_HANDLED;
+}
 
 
 
@@ -498,7 +514,7 @@ irqreturn_t short_sh_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	wake_up_interruptible(&short_queue); *//* awake any reading process */
 	/*return IRQ_HANDLED;
 }*/
-/*
+
 void short_kernelprobe(void)
 {
 	int count = 0;
@@ -506,76 +522,85 @@ void short_kernelprobe(void)
 		unsigned long mask;
 
 		mask = probe_irq_on();
-		outb_p(0x10,short_base+2); *//* enable reporting */
-		/*outb_p(0x00,short_base);  */ /* clear the bit */
-		/*outb_p(0xFF,short_base);   *//* set the bit: interrupt! */
-		/*outb_p(0x00,short_base+2);*/ /* disable reporting */
-		/*udelay(5);*/  /* give it some time */
-		/*short_irq = probe_irq_off(mask);*/
+		outb_p(0x10,short_base+2); /* enable reporting */
+		outb_p(0x00,short_base);  /* clear the bit */
+		outb_p(0xFF,short_base);   /* set the bit: interrupt! */
+        outb_p(0x00, short_base); /* TODO: remove. Only set this to make sure that Data port is cleared after probing. */
+		outb_p(0x00,short_base+2); /* disable reporting */
+		udelay(5);  /* give it some time */
+		short_irq = probe_irq_off(mask);
 
-		/*if (short_irq == 0) { *//* none of them? */
-			/*printk(KERN_INFO "short: no irq reported by probe\n");
+		if (short_irq == 0) { /* none of them? */
+			printk(KERN_INFO "short: no irq reported by probe\n");
 			short_irq = -1;
-		}*/
+		}
 		/*
 		 * if more than one line has been activated, the result is
 		 * negative. We should service the interrupt (no need for lpt port)
 		 * and loop over again. Loop at most five times, then give up
 		 */
-	/*} while (short_irq < 0 && count++ < 5);
+	} while (short_irq < 0 && count++ < 5);
 	if (short_irq < 0)
 		printk("short: probe failed %i times, giving up\n", count);
-}*/
-/*
-irqreturn_t short_probing(int irq, void *dev_id, struct pt_regs *regs)
+    /* TODO: remove this else block*/
+    else
+        printk("short: kernel probe succeeded, short_irq = %d\n", short_irq);
+}
+
+irqreturn_t short_probing(int irq, void *dev_id)
 {
-	if (short_irq == 0) short_irq = irq;*/	/* found */
-	/*if (short_irq != irq) short_irq = -irq; *//* ambiguous */
-	/*return IRQ_HANDLED;
-}*/
-/*
+	if (short_irq == 0) short_irq = irq;	/* found */
+	if (short_irq != irq) short_irq = -irq; /* ambiguous */
+	return IRQ_HANDLED;
+}
+
 void short_selfprobe(void)
 {
-	int trials[] = {3, 5, 7, 9, 0};
+	int trials[] = {13, 15, 17, 19, 0};
 	int tried[]  = {0, 0, 0, 0, 0};
 	int i, count = 0;
-*/
+
 	/*
 	 * install the probing handler for all possible lines. Remember
 	 * the result (0 for success, or -EBUSY) in order to only free
 	 * what has been acquired
       */
-/*	for (i = 0; trials[i]; i++)
+    for (i = 0; trials[i]; i++)
 		tried[i] = request_irq(trials[i], short_probing,
-				SA_INTERRUPT, "short probe", NULL);
+				0 /* TODO: what is the proper flag here? */, 
+                "short probe", NULL);
 
 	do {
-		short_irq = 0; *//* none got, yet */
-		/*outb_p(0x10,short_base+2);*/ /* enable */
-		/*outb_p(0x00,short_base);
-		outb_p(0xFF,short_base); *//* toggle the bit */
-		/*outb_p(0x00,short_base+2);*/ /* disable */
-		/*udelay(5);*/  /* give it some time */
+		short_irq = 0; /* none got, yet */
+		outb_p(0x10,short_base+2); /* enable */
+		outb_p(0x00,short_base);
+		outb_p(0xFF,short_base); /* toggle the bit */
+		outb_p(0x00,short_base+2); /* disable */
+		udelay(5);  /* give it some time */
 
 		/* the value has been set by the handler */
-		/*if (short_irq == 0) {*/ /* none of them? */
-			/*printk(KERN_INFO "short: no irq reported by probe\n");
-		}*/
+		if (short_irq == 0) { /* none of them? */
+			printk(KERN_INFO "short: no irq reported by probe\n");
+		}
 		/*
 		 * If more than one line has been activated, the result is
 		 * negative. We should service the interrupt (but the lpt port
 		 * doesn't need it) and loop over again. Do it at most 5 times
 		 */
-	/*} while (short_irq <=0 && count++ < 5);*/
+	} while (short_irq <=0 && count++ < 5);
 
 	/* end of loop, uninstall the handler */
-	/*for (i = 0; trials[i]; i++)
+	for (i = 0; trials[i]; i++)
 		if (tried[i] == 0)
 			free_irq(trials[i], NULL);
 
 	if (short_irq < 0)
 		printk("short: probe failed %i times, giving up\n", count);
-}*/
+
+    /* TODO: remove */
+    if (short_irq > 0)
+        printk(KERN_ALERT "short: probe succeeded. short_irq = %d\n", short_irq);
+}
 
 
 
@@ -591,7 +616,7 @@ int short_init(void)
 	 * just "base" at load time. Same for "irq".
 	 */
 	short_base = base;
-	/** short_irq = irq; */
+	short_irq = irq;
 
     if (use_mem && map_port) {
         printk(KERN_ALERT 
@@ -635,8 +660,8 @@ int short_init(void)
 	}
 	if (major == 0) major = result; /* dynamic */
 
-	/* short_buffer = __get_free_pages(GFP_KERNEL,0); */ /* never fails */  /* FIXME */
-	/* short_head = short_tail = short_buffer; */
+	short_buffer = __get_free_pages(GFP_KERNEL,0); /* never fails */  /* FIXME */
+	short_head = short_tail = short_buffer;
 
 	/*
 	 * Fill the workqueue structure, used for the bottom half handler.
@@ -644,25 +669,19 @@ int short_init(void)
 	 * (unused) argument.
 	 */
 	/* this line is in short_init() */
-	/* INIT_WORK(&short_wq, (void (*)(void *)) short_do_tasklet, NULL); */
+	INIT_WORK(&short_wq, (void (*)(struct work_struct *)) short_do_tasklet);
 
 	/*
 	 * Now we deal with the interrupt: either kernel-based
 	 * autodetection, DIY detection or default number
+     * https://elixir.bootlin.com/linux/v5.16.13/source/kernel/sched/wait.c#L419
 	 */
 
-	/* if (short_irq < 0 && probe == 1)
+	if (short_irq < 0 && probe == 1)
 		short_kernelprobe();
 
 	if (short_irq < 0 && probe == 2)
-		short_selfprobe(); */
-
-	/* if (short_irq < 0)*/ /* not yet specified: force the default on */
-		/* switch(short_base) {
-		    case 0x378: short_irq = 7; break;
-		    case 0x278: short_irq = 2; break;
-		    case 0x3bc: short_irq = 5; break;
-		} */
+		short_selfprobe();
 
 	/*
 	 * If shared has been specified, installed the shared handler
@@ -681,54 +700,62 @@ int short_init(void)
 			/*outb(0x10, short_base+2);
 		}
 		return 0;*/ /* the rest of the function only installs handlers */
-	/* } 
+	/* } */ 
 
-	if (short_irq >= 0) {
-		result = request_irq(short_irq, short_interrupt,
-				SA_INTERRUPT, "short", NULL);
-		if (result) {
+    if (short_irq >= 0) {
+        result = request_irq(short_irq, short_interrupt  /* short_interrupt */,
+				0  /* TODO: what is the proper flag here? */, "short", NULL);
+	    if (result) {
 			printk(KERN_INFO "short: can't get assigned irq %i\n",
 					short_irq);
 			short_irq = -1;
 		}
-		else {*/ /* actually enable it -- assume this *is* a parallel port */
-			/* outb(0x10,short_base+2);
+		else { /* actually enable it -- assume this *is* a parallel port */
+            /** 
+             * We don't enable it because once we enable the interrupts, 
+             * the parallel port will keep sending interrupts on a rising edge 
+             * - even if we set pin10 back to 0. Instead, we enable the 
+             * interrupt, send a rising edge, and disable it immediately in 
+             * short_i_write.
+             *
+             * TODO: Find the root cause of the continous spurious interrupt.
+             */
+			/* outb(0x10,short_base+2); */
 		}
-	} */
+	}
 
 	/*
 	 * Ok, now change the interrupt handler if using top/bottom halves
 	 * has been requested
 	 */
-    /*
 	if (short_irq >= 0 && (wq + tasklet) > 0) {
 		free_irq(short_irq,NULL);
 		result = request_irq(short_irq,
-				tasklet ? short_tl_interrupt :
-				short_wq_interrupt,
-				SA_INTERRUPT,"short-bh", NULL);
+				tasklet ? short_tl_interrupt : short_wq_interrupt,
+				/*TODO: what is the proper flag?*/0,
+                "short-bh", NULL);
 		if (result) {
 			printk(KERN_INFO "short-bh: can't get assigned irq %i\n",
 					short_irq);
 			short_irq = -1;
 		}
-	} */
+	}
 
 	return 0;
 }
 
 void short_cleanup(void)
 {
-/*	if (short_irq >= 0) {
-		outb(0x0, short_base + 2);  */ /* disable the interrupt */
-		/*if (!share) free_irq(short_irq, NULL);
-		else free_irq(short_irq, short_sh_interrupt);
-	} */
+    if (short_irq >= 0) {
+		outb(0x0, short_base + 2);  /* disable the interrupt */
+		/*if (!share)*/ free_irq(short_irq, NULL);
+		/*else free_irq(short_irq, short_sh_interrupt);*/
+	}
 	/* Make sure we don't leave work queue/tasklet functions running */
-	/*if (tasklet)
+	if (tasklet)
 		tasklet_disable(&short_tasklet);
-	else
-		flush_scheduled_work(); */
+    else
+		flush_scheduled_work();
 	unregister_chrdev(major, "short");
 	if (use_mem) {
 		iounmap((void __iomem *)short_base);
@@ -739,7 +766,7 @@ void short_cleanup(void)
         }
         release_region(base,SHORT_NR_PORTS);
 	}
-	/* if (short_buffer) free_page(short_buffer); */
+	if (short_buffer) free_page(short_buffer);
 }
 
 module_init(short_init);
