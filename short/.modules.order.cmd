@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/short/modules.order := {   echo /home/changda/git/kernels/examples/short/short.ko; :; } | awk '!x[$$0]++' - > /home/changda/git/kernels/examples/short/modules.order

@@ -498,9 +498,7 @@ irqreturn_t short_sh_interrupt(int irq, void *dev_id)
 	int value, written;
 	struct timespec64 tv;
 
-	/* If it wasn't short, return immediately */
-	value = inb(short_base);
-    /**
+    /*
      * We trigger the interrupt by enabling the interrupt, setting pin9 to 
      * 0 -> 1 -> 0, and then disable the interrupt. From the experiment, the 
      * interrupt is received after we set the port back to 0. Therefore, we 
@@ -509,7 +507,9 @@ irqreturn_t short_sh_interrupt(int irq, void *dev_id)
      * TODO: check why the parallel port keeps sending interrupt after being 
      * set to 1.
      */ 
-	/* if (!(value & 0x80))
+	/* If it wasn't short, return immediately */
+	/*value = inb(short_base);
+ 	if (!(value & 0x80))
 		return IRQ_NONE; */
 	
 	/* clear the interrupting bit */
@@ -700,7 +700,7 @@ int short_init(void)
 	 */
 	if (short_irq >= 0 && share > 0) {
 		result = request_irq(short_irq, short_sh_interrupt,
-				/*IRQF_SHARED*/ 0,"short",
+				IRQF_SHARED,"short",
 				short_sh_interrupt);
 		if (result) {
 			printk(KERN_INFO "short: can't get assigned irq %i\n", short_irq);
