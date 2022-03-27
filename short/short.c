@@ -65,7 +65,7 @@ unsigned long short_base = 0;
 module_param(base, long, 0);
 
 /* The interrupt line is undefined by default. "short_irq" is as above */
-static int irq = -1;
+static int irq = 17;
 volatile int short_irq = -1; /* TODO: what is volatile here for? */
 module_param(irq, int, 0);
 
@@ -78,8 +78,8 @@ module_param(wq, int, 0);
 static int tasklet = 0;	/* select whether a tasklet is used */
 module_param(tasklet, int, 0);
 
-/* static int share = 0;	*//* select at load time whether install a shared irq */
-/*module_param(share, int, 0);*/
+static int share = 0;	/* select at load time whether install a shared irq */
+module_param(share, int, 0);
 
 MODULE_AUTHOR ("Alessandro Rubini");
 MODULE_LICENSE("Dual BSD/GPL");
@@ -255,6 +255,7 @@ ssize_t do_short_write (struct inode *inode, struct file *filp, const char __use
 
 	case SHORT_DEFAULT:
 		while (count--) {
+            printk(KERN_ALERT "short default write to port\n");
 			outb(*(ptr++), port);
 			wmb();
 		}
@@ -491,29 +492,38 @@ irqreturn_t short_tl_interrupt(int irq, void *dev_id)
 
 
 
-/*
-irqreturn_t short_sh_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+
+irqreturn_t short_sh_interrupt(int irq, void *dev_id)
 {
 	int value, written;
-	struct timeval tv; */
+	struct timespec64 tv;
 
 	/* If it wasn't short, return immediately */
-	/*value = inb(short_base);
-	if (!(value & 0x80))
-		return IRQ_NONE;
-*/	
+	value = inb(short_base);
+    /**
+     * We trigger the interrupt by enabling the interrupt, setting pin9 to 
+     * 0 -> 1 -> 0, and then disable the interrupt. From the experiment, the 
+     * interrupt is received after we set the port back to 0. Therefore, we 
+     * don't check whether pin9 is set to make sure the interrupt is actually 
+     * triggered by our parallel port here.
+     * TODO: check why the parallel port keeps sending interrupt after being 
+     * set to 1.
+     */ 
+	/* if (!(value & 0x80))
+		return IRQ_NONE; */
+	
 	/* clear the interrupting bit */
-/*	outb(value & 0x7F, short_base); */
+    /* outb(value & 0x7F, short_base); */
 
 	/* the rest is unchanged */
-/*
-	do_gettimeofday(&tv);
+
+	ktime_get_real_ts64(&tv);
 	written = sprintf((char *)short_head,"%08u.%06u\n",
-			(int)(tv.tv_sec % 100000000), (int)(tv.tv_usec));
+			(int)(tv.tv_sec % 100000000), (int)(tv.tv_nsec / 1000));
 	short_incr_bp(&short_head, written);
-	wake_up_interruptible(&short_queue); *//* awake any reading process */
-	/*return IRQ_HANDLED;
-}*/
+	wake_up_interruptible(&short_queue); /* awake any reading process */
+	return IRQ_HANDLED;
+}
 
 void short_kernelprobe(void)
 {
@@ -688,19 +698,28 @@ int short_init(void)
 	 * instead of the normal one. Do it first, before a -EBUSY will
 	 * force short_irq to -1.
 	 */
-	/* if (short_irq >= 0 && share > 0) {
+	if (short_irq >= 0 && share > 0) {
 		result = request_irq(short_irq, short_sh_interrupt,
-				SA_SHIRQ | SA_INTERRUPT,"short",
+				/*IRQF_SHARED*/ 0,"short",
 				short_sh_interrupt);
 		if (result) {
 			printk(KERN_INFO "short: can't get assigned irq %i\n", short_irq);
 			short_irq = -1;
 		}
-		else {*/ /* actually enable it -- assume this *is* a parallel port */
-			/*outb(0x10, short_base+2);
+		else {/* actually enable it -- assume this *is* a parallel port */
+            /** 
+             * We don't enable it because once we enable the interrupts, 
+             * the parallel port will keep sending interrupts on a rising edge 
+             * - even if we set pin10 back to 0. Instead, we enable the 
+             * interrupt, send a rising edge, and disable it immediately in 
+             * short_i_write.
+             *
+             * TODO: Find the root cause of the continous spurious interrupt.
+             */
+			/* outb(0x10, short_base+2); */
 		}
-		return 0;*/ /* the rest of the function only installs handlers */
-	/* } */ 
+		return 0;/* the rest of the function only installs handlers */
+	} 
 
     if (short_irq >= 0) {
         result = request_irq(short_irq, short_interrupt  /* short_interrupt */,
@@ -748,8 +767,8 @@ void short_cleanup(void)
 {
     if (short_irq >= 0) {
 		outb(0x0, short_base + 2);  /* disable the interrupt */
-		/*if (!share)*/ free_irq(short_irq, NULL);
-		/*else free_irq(short_irq, short_sh_interrupt);*/
+		if (!share) free_irq(short_irq, NULL);
+		else free_irq(short_irq, short_sh_interrupt);
 	}
 	/* Make sure we don't leave work queue/tasklet functions running */
 	if (tasklet)
