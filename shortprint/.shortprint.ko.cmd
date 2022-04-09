@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/shortprint/shortprint.ko := ld -r -m elf_x86_64  --build-id  -T ./scripts/module-common.lds -o /home/changda/git/kernels/examples/shortprint/shortprint.ko /home/changda/git/kernels/examples/shortprint/shortprint.o /home/changda/git/kernels/examples/shortprint/shortprint.mod.o;  true

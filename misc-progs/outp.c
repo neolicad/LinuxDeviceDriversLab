@@ -92,6 +92,21 @@ static int write_one(unsigned int port, unsigned int val, int size)
     return 0;
 }
 
+static int trigger_one_interrupt(unsigned int port) {
+    /* Port 9 and 10 are connected. */
+    int error = 0;
+    /* Set pin 10 to 0. */
+    error += write_one(port, 0x0, 1);
+    /* Enable interrupt */
+    error += write_one(port + 2, 0xff, 1);
+    /* Set pin 10 to 1. */
+    error += write_one(port, 0x80, 1);
+    /* Disable interrupt */
+    error += write_one(port + 2, 0x00, 1);
+
+    return error;
+}
+
 #endif /* i386 */
 
 int main(int argc, char **argv)
@@ -130,7 +145,8 @@ int main(int argc, char **argv)
 		            argv[0], argv[i+1]);
 	        error++; continue;
 	    }
-	    error += write_one(port, val, size);
+	    /* error += write_one(port, val, size);*/
+        error += trigger_one_interrupt(port);
     }
     exit (error ? 1 : 0);
 }

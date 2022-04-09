@@ -1,0 +1,1 @@
+cmd_/home/changda/git/kernels/examples/shortprint/shortprint.mod := { echo  /home/changda/git/kernels/examples/shortprint/shortprint.o; echo; } > /home/changda/git/kernels/examples/shortprint/shortprint.mod

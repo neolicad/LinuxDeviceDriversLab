@@ -15,7 +15,6 @@
  *
  * $Id: shortprint.c,v 1.4 2004/09/26 08:01:04 gregkh Exp $
  */
-#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 
@@ -32,7 +31,6 @@
 #include <linux/poll.h>
 
 #include <asm/io.h>
-#include <asm/semaphore.h>
 #include <asm/atomic.h>
 
 #include "shortprint.h"
@@ -48,12 +46,12 @@ module_param(major, int, 0);
 
 /* default is the first printer port on PC's. "shortp_base" is there too
    because it's what we want to use in the code */
-static unsigned long base = 0x378;
+static unsigned long base = 0x3010;
 unsigned long shortp_base = 0;
 module_param(base, long, 0);
 
 /* The interrupt line is undefined by default. "shortp_irq" is as above */
-static int irq = -1;
+static int irq = 17;
 static int shortp_irq = -1;
 module_param(irq, int, 0);
 
@@ -69,7 +67,7 @@ MODULE_LICENSE("Dual BSD/GPL");
  * Forwards.
  */
 static void shortp_cleanup(void);
-static void shortp_timeout(unsigned long unused);
+static void shortp_timeout(struct timer_list *);
 
 /*
  * Input is managed through a simple circular buffer which, among other things,
@@ -80,7 +78,7 @@ static unsigned long shortp_in_buffer = 0;
 static unsigned long volatile shortp_in_head;
 static volatile unsigned long shortp_in_tail;
 DECLARE_WAIT_QUEUE_HEAD(shortp_in_queue);
-static struct timeval shortp_tv;  /* When the interrupt happened. */
+static struct timespec64 shortp_tv;  /* When the interrupt happened. */
 
 /*
  * Atomicly increment an index into shortp_in_buffer
@@ -108,8 +106,8 @@ static DECLARE_WAIT_QUEUE_HEAD(shortp_out_queue);
  * Feeding the output queue to the device is handled by way of a
  * workqueue.
  */
-static void shortp_do_work(void *);
-static DECLARE_WORK(shortp_work, shortp_do_work, NULL);
+static void shortp_do_work(struct work_struct *);
+static DECLARE_WORK(shortp_work, shortp_do_work);
 static struct workqueue_struct *shortp_workqueue;
 
 /*
@@ -213,6 +211,7 @@ static ssize_t shortp_read(struct file *filp, char __user *buf, size_t count, lo
  */
 static void shortp_wait(void)
 {
+    /* The printer is ready if pin 11 is 0 */
 	if ((inb(shortp_base + SP_STATUS) & SP_SR_BUSY) == 0) {
 		printk(KERN_INFO "shortprint: waiting for printer busy\n");
 		printk(KERN_INFO "Status is 0x%x\n", inb(shortp_base + SP_STATUS));
@@ -268,6 +267,10 @@ static void shortp_start_output(void)
 /*
  * Write to the device.
  */
+/* 
+ * TODO: why is it that when shortp_write returns, but work hangs, that echo 
+ * also hangs? A: I think the write hangs as long as the timer is still alive.
+ */
 static ssize_t shortp_write(struct file *filp, const char __user *buf, size_t count,
 		loff_t *f_pos)
 {
@@ -299,6 +302,7 @@ static ssize_t shortp_write(struct file *filp, const char __user *buf, size_t co
 			up(&shortp_out_sem);
 			return -EFAULT;
 		}
+		/* Move data into the buffer. */
 		shortp_incr_out_bp(&shortp_out_head, space);
 		buf += space;
 		written += space;
@@ -322,7 +326,7 @@ out:
  */
 
 
-static void shortp_do_work(void *unused)
+static void shortp_do_work(struct work_struct *unused)
 {
 	int written;
 	unsigned long flags;
@@ -351,7 +355,7 @@ static void shortp_do_work(void *unused)
 	/* Handle the "read" side operation */
 	written = sprintf((char *)shortp_in_head, "%08u.%06u\n",
 			(int)(shortp_tv.tv_sec % 100000000),
-			(int)(shortp_tv.tv_usec));
+			(int)(shortp_tv.tv_nsec / 1000));
 	shortp_incr_bp(&shortp_in_head, written);
 	wake_up_interruptible(&shortp_in_queue); /* awake any reading process */
 }
@@ -360,13 +364,13 @@ static void shortp_do_work(void *unused)
 /*
  * The top-half interrupt handler.
  */
-static irqreturn_t shortp_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+static irqreturn_t shortp_interrupt(int irq, void *dev_id)
 {
 	if (! shortp_output_active) 
 		return IRQ_NONE;
 
 	/* Remember the time, and farm off the rest to the workqueue function */ 
-	do_gettimeofday(&shortp_tv);
+	ktime_get_real_ts64(&shortp_tv);
 	queue_work(shortp_workqueue, &shortp_work);
 	return IRQ_HANDLED;
 }
@@ -376,7 +380,7 @@ static irqreturn_t shortp_interrupt(int irq, void *dev_id, struct pt_regs *regs)
  * things have gone wrong, however; printers can spend an awful long time
  * just thinking about things.
  */
-static void shortp_timeout(unsigned long unused)
+static void shortp_timeout(struct timer_list *unused)
 {
 	unsigned long flags;
 	unsigned char status;
@@ -396,7 +400,7 @@ static void shortp_timeout(unsigned long unused)
 
 	/* Otherwise we must have dropped an interrupt. */
 	spin_unlock_irqrestore(&shortp_out_lock, flags);
-	shortp_interrupt(shortp_irq, NULL, NULL);
+	shortp_interrupt(shortp_irq, NULL);
 }
     
 
@@ -461,9 +465,7 @@ static int shortp_init(void)
 	/* And the output info */
 	shortp_output_active = 0;
 	spin_lock_init(&shortp_out_lock);
-	init_timer(&shortp_timer);
-	shortp_timer.function = shortp_timeout;
-	shortp_timer.data = 0;
+	timer_setup(&shortp_timer, shortp_timeout, /* flags */ 0);
     
 	/* Set up our workqueue. */
 	shortp_workqueue = create_singlethread_workqueue("shortprint");
